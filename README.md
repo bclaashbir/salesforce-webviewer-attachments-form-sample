@@ -1,3 +1,5 @@
+Sample assumes the lightning web component is placed on an opp page and the opportunity includes a value in the Amount field and has a primary contact associated with it and that Contact object includes values in First Name, Last Name, Phone, and Email.
+
 # How to View, Edit, Annotate and Redact Salesforce Record Attachment Files in a Lightning Web Component
 
 ## Overview
