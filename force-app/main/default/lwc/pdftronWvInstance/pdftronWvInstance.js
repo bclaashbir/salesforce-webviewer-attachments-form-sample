@@ -8,6 +8,13 @@ import mimeTypes from "./mimeTypes";
 import { fireEvent, registerListener, unregisterAllListeners } from "c/pubsub";
 import saveDocument from "@salesforce/apex/PDFTron_ContentVersionController.saveDocument";
 import getUser from "@salesforce/apex/PDFTron_ContentVersionController.getUser";
+import { getRecord} from 'lightning/uiRecordApi';
+//import the newly added function to show how to grab data from a differant salesforce object/record
+import getContactInfo from "@salesforce/apex/PDFTron_ContentVersionController.getContactInfo";
+
+
+const FIELDS = ['Opportunity.Amount']; //fields from the current record we're looking to grab data from
+
 
 function _base64ToArrayBuffer(base64) {
   var binary_string = window.atob(base64);
@@ -30,10 +37,14 @@ export default class PdftronWvInstance extends LightningElement {
   source = "My file";
   @api recordId;
 
+
   @wire(CurrentPageReference)
   pageRef;
 
   username;
+
+  recordObject; //place to store the values we're grabbing from the current record
+  recordContactObject; //place to store values from the contact object related to the opp object we're using webviewer on
 
   connectedCallback() {
     registerListener("blobSelected", this.handleBlobSelected, this);
@@ -45,6 +56,31 @@ export default class PdftronWvInstance extends LightningElement {
   disconnectedCallback() {
     unregisterAllListeners(this);
     window.removeEventListener("message", this.handleReceiveMessage);
+  }
+
+  //grab data from the current record
+  wireResult;
+  @wire(getRecord, {recordId: "$recordId", fields: FIELDS})
+  wiredRecord({error, data}){
+    if(error){
+      this.dispatchEvent(
+        new ShowToastEvent({
+            title: 'Error loading contact',
+            message: 'ERROR',
+            variant: 'error',
+        }),
+    );
+    this.wireResult = error;
+    } else if (data){
+      const payload = {
+        dat: data
+      };
+      this.recordObject = {};
+      for (const property in data.fields){
+        this.recordObject[property] = data.fields[property].value;
+      }
+        this.wireResult = data;
+    }
   }
 
   handleBlobSelected(record) {
@@ -110,9 +146,9 @@ export default class PdftronWvInstance extends LightningElement {
         enableRedaction: this.enableRedaction,
         enableMeasurement: this.enableMeasurement,
         enableOptimizedWorkers: true,
-        loadAsPDF: true
+        loadAsPDF: true,
         // enableOfficeEditing: true
-        // l: 'YOUR_LICENSE_KEY_HERE',
+         l: 'demo:1708454193493:7f5b428c0300000000a1868abcb527f0551c1d0c68d95233ed06167648'
       },
       viewerElement
     );
@@ -147,6 +183,27 @@ export default class PdftronWvInstance extends LightningElement {
               );
               fireEvent(this.pageRef, "refreshOnSave", error);
               console.error(event.data.payload.contentDocumentId);
+              console.error(JSON.stringify(error));
+              this.showNotification("Error", error.body, "error");
+            });
+          break;
+        case "REQUEST_DATA":
+          //grab data from the associated contact object
+          getContactInfo({recordId: this.recordId})
+            .then((response) => {
+              let payload = {
+                oppFields: this.recordObject, //pass the previously grabbed data from this record
+                contactFields: response //pass the newly grabbed data from the associated contact record
+              };
+
+              this.iframeWindow.postMessage({ type: "ADD_FIELD_DATA", payload }, window.origin);
+            })
+            .catch((error) => {
+              me.iframeWindow.postMessage(
+                { type: "CONTACT_INFO_ERROR", error },
+                "*"
+              );
+              console.error(event.data.payload);
               console.error(JSON.stringify(error));
               this.showNotification("Error", error.body, "error");
             });

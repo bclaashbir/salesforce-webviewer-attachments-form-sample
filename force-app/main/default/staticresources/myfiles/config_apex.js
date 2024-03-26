@@ -140,6 +140,78 @@ instance.UI.addEventListener('viewerLoaded', async function () {
       }
     }
     header.push(myCustomButton);
+
+    //new button to grab data from Salesforce
+    var grabSFDataButton = {
+      type: 'actionButton',
+      dataElement: 'grabDataButton',
+      title: 'grab SF data',
+      img: 'icon-arrow-down',
+      onClick: function () {
+        parent.postMessage({ type: 'REQUEST_DATA' }, '*');
+      }
+    }
+    header.push(grabSFDataButton);
+
+    //new button to validate form data
+    var validateButton = {
+      type: 'actionButton',
+      dataElement: 'validateButton',
+      title: 'validate data',
+      img: 'icon-menu-checkmark',
+      onClick: function () {
+        //grab the field manager
+        const fieldManager = instance.Core.annotationManager.getFieldManager();
+
+        //simple popup if all fields marked as required aren't filled out
+        if (!(fieldManager.areRequiredFieldsFilled()))
+          alert("Missing a required field!");
+
+        //optionally can create labels for fields as well, just delete last name to try this one, but you can create different messages for different fields based upon why they didn't pass validation
+        const lastName = fieldManager.getField("lastNameField");
+        if (lastName.flags.get('Required')) //check if it's a required field
+        {
+          if (!lastName.value) //if empty then we'll make sure the user has an indicator pointing to the field
+          {
+            lastName.widgets[0].setFieldIndicator(true, "Fill this out!"); //create the label
+            instance.Core.annotationManager.trigger('annotationChanged', [lastName.widgets, 'modify', {}]);  //trigger the change to make sure the label shows up
+          }
+          else //if filled out then make sure we clear any indicator from a previous validation (could also hook into an event on a change to the field value to immediately check/validate and clear the indicator)
+            lastName.widgets[0].setFieldIndicator(false); //remove the label
+            instance.Core.annotationManager.trigger('annotationChanged', [lastName.widgets, 'modify', {}]);  //trigger the change to make sure the label shows up
+        }
+
+        //make sure 2 checkboxes are selected
+        var numOfSelectedCheckboxes = 0;
+        const checkboxWidgetAnnotations = instance.Core.annotationManager.getAnnotationsList().filter(annotation => annotation instanceof Core.Annotations.CheckButtonWidgetAnnotation)
+        checkboxWidgetAnnotations.forEach((checkbox) => {
+          if (checkbox.getValue() == "Yes")
+          numOfSelectedCheckboxes++;
+        })
+        if (numOfSelectedCheckboxes < 2)
+          alert("Not enough checkboxes selected!");
+        else if (numOfSelectedCheckboxes > 2)
+          alert("too many checkboxes selected!");
+
+        //we can also embed javascript into the fields themselves and use some standards from the pdf spec
+        //first we'll make sure only numbers can be inserted into the amount field, then we'll make the 12x amount field autocalculate
+        //grab the widgets
+        const amount = fieldManager.getField("amountField").widgets[0];
+        const annualAmount = fieldManager.getField("amountX12Field").widgets[0];
+        //create the javascript actions we'll be using
+        const keystrokeAction = new instance.Core.Actions.JavaScript({javascript: 'AFNumber_Keystroke(0,0,0,0,"",true)'}); //function is built into pdf's, can find a list of these at https://opensource.adobe.com/dc-acrobat-sdk-docs/library/interapp/IAC_API_FormsIntro.html
+        const calculateAction = new instance.Core.Actions.JavaScript({javascript: 'this.getField("amountX12Field").value = this.getField("amountField").value * 12'}); //can also insert custom javascript which we'll use to multiply the value of a previous field by 12
+        //add the actions to the field widgets, some potential triggers are: 'K' is keystroke, 'C' is calculate, 'V' is validate
+        amount.addAction('K', keystrokeAction);
+        annualAmount.addAction('C', calculateAction);
+        fieldManager.setCalculationOrder(["amountField", "amountX12Field"]); //make sure any change to amountField causes a Calculate event for amountX12Field
+        //you can use the below action on a field to play around and see when a validate event would trigger
+        //const validateAction = new instance.Core.Actions.JavaScript({javascript: 'alert("validate")'});
+        
+      }
+    }
+    header.push(validateButton);
+
   });
 
   // When the viewer has loaded, this makes the necessary call to get the
@@ -153,6 +225,30 @@ instance.UI.addEventListener('viewerLoaded', async function () {
 window.addEventListener("message", receiveMessage, false);
 
 
+fieldData; //place to store the SF field data that is returned
+
+//new function to insert the data we grabbed into the actual pdf form fields
+function fillForm (fieldData) {
+  const fieldManager = instance.Core.annotationManager.getFieldManager(); //grab the field manager
+
+  /* Generally to grab all the field names from a document I just use the below
+  fieldManager.forEachField(field => {
+    console.log(field);
+  })
+  */
+
+  //just a few form fields so I just directly did it below, but probably more normal to use a map or 2d array or some kind of structure to map the data you're inputting into the pdf form field names
+  fieldManager.getField("firstNameField").setValue(fieldData.contactFields.FirstName);
+  fieldManager.getField("lastNameField").setValue(fieldData.contactFields.LastName);
+  fieldManager.getField("emailField").setValue(fieldData.contactFields.Email);
+  fieldManager.getField("phoneField").setValue(fieldData.contactFields.Phone);
+  fieldManager.getField("amountField").setValue(fieldData.oppFields.Amount);
+  fieldManager.getField("amountX12Field").setValue(fieldData.oppFields.Amount * 12);
+  fieldManager.getField("Radio Button 38").widgets[1].innerElement.click(); //radio buttons all have the same field name in a PDF, the individual buttons are in an array of widgets starting with '0'
+  fieldManager.getField("checkboxField1").widgets[0].innerElement.click();
+  fieldManager.getField("checkboxField3").widgets[0].innerElement.click();
+
+};
 
 function receiveMessage(event) {
   if (event.isTrusted && typeof event.data === 'object') {
@@ -184,6 +280,11 @@ function receiveMessage(event) {
         break;
       case 'CLOSE_DOCUMENT':
         instance.UI.closeDocument()
+        break;
+      case 'ADD_FIELD_DATA':
+        fieldData = event.data.payload;
+        //console.log(fieldData);
+        fillForm(fieldData);
         break;
       default:
         break;

@@ -31,6 +31,30 @@ public with sharing class PDFTron_ContentVersionController {
         }
     }
 
+    //Newly added to show an example of how to grab data from related salesforce objects
+    //in this case it's grabbing info from the contact associated with the opp where i've inserted the lightning web component with webviewer
+    @AuraEnabled
+    public static Contact getContactInfo(String recordId) {
+        try {
+            //if troubleshooting and looking to print then use system.debug like below which you can then see in the Salesforce developer console
+            System.debug('Starting to get contact id');
+
+            //assuming the contact is tied to the opp so can grab the contact id from the OpportunityContactRole
+            OpportunityContactRole contactId = [SELECT ContactId
+            FROM OpportunityContactRole
+            WHERE OpportunityId = :recordId];
+
+            //grab the actual fieds we're interested in with the contact id we located above
+            Contact contact = [SELECT FirstName, LastName, Email, Phone
+            FROM Contact
+            WHERE Id = :contactId.ContactId];
+
+            return contact;
+        } catch (Exception e) {
+            throw new AuraHandledException(e.getMessage());
+        }
+    } 
+
     @AuraEnabled
     public static ContentVersionWrapper getBase64FromCv(String recordId) {
         try {
